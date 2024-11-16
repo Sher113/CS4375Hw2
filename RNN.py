@@ -1,64 +1,140 @@
+# FFNN Implementation for CS4375 Homework 2
 import torch
 import torch.nn as nn
+import torch.optim as optim
 import torch.nn.functional as F
+from torch.utils.data import DataLoader
+from data_loader import load_data  # Assuming a load_data function is provided for loading datasets
 
-class SentimentRNN(nn.Module):
-    def __init__(self, vocab_size, embedding_dim, hidden_dim, output_dim, n_layers, drop_prob=0.5):
-        super(SentimentRNN, self).__init__()
-        
-        # Embedding layer
-        self.embedding = nn.Embedding(vocab_size, embedding_dim)
-        
-        # RNN layer
-        self.rnn = nn.RNN(embedding_dim, hidden_dim, n_layers, nonlinearity='tanh', batch_first=True)
-        
-        # Dropout layer
-        self.dropout = nn.Dropout(0.3)
-        
-        # Linear layer
-        self.fc = nn.Linear(hidden_dim, output_dim)
-        
-        # LogSoftmax activation
-        self.log_softmax = nn.LogSoftmax(dim=1)
-        
-        # Loss function
-        self.loss = nn.NLLLoss()
-        
-    def compute_Loss(self, predicted_vector, gold_label):
-        return self.loss(predicted_vector, gold_label)
+class FeedForwardNN(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super(FeedForwardNN, self).__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, x):
-        # embeddings and RNN output
-        embeds = self.embedding(x)
-        rnn_out, hidden = self.rnn(embeds)
-        
-        # Take the output of the last time step
-        rnn_out = rnn_out[:, -1, :]
-        
-        # Pass through dropout layer
-        out = self.dropout(rnn_out)
-        
-        # Fully connected layer
-        out = self.fc(out)
-        
-        # LogSoftmax activation
-        predicted_vector = self.log_softmax(out)
-        
-        return predicted_vector
+        h = F.relu(self.fc1(x))
+        z = self.fc2(h)
+        return z
 
-# Hyperparameters (example values)
-vocab_size = 5000  # Size of the vocabulary
-embedding_dim = 300  # Dimension of word embeddings
-hidden_dim = 128  # Hidden layer dimension
-output_dim = 5  # Number of classes (for 5-class sentiment analysis)
-n_layers = 1  # Number of RNN layers
+# Hyperparameters and Model Training for FFNN
+input_dim = 5000  # Example vocabulary size
+hidden_dim = 128
+output_dim = 5  # Output classes (ratings from 1 to 5)
+learning_rate = 0.001
+epochs = 10
+batch_size = 64
 
-# Model instantiation
-model = SentimentRNN(vocab_size, embedding_dim, hidden_dim, output_dim, n_layers)
+train_data, val_data, _ = load_data("path/to/train_data", "path/to/val_data")
+train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
 
-# Example input (batch of sequences)
-x_example = torch.randint(0, vocab_size, (32, 100))  # Batch size 32, sequence length 100
+model = FeedForwardNN(input_dim, hidden_dim, output_dim)
+optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+criterion = nn.CrossEntropyLoss()
 
-# Forward pass
-output = model(x_example)
-print(output)
+def train_ffnn(model, train_loader, val_loader, optimizer, criterion, epochs):
+    for epoch in range(epochs):
+        model.train()
+        total_loss = 0
+        for batch in train_loader:
+            optimizer.zero_grad()
+            inputs, targets = batch
+            outputs = model(inputs)
+            loss = criterion(outputs, targets)
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+        print(f"Epoch [{epoch+1}/{epochs}], Training Loss: {total_loss/len(train_loader):.4f}")
+
+        # Validation phase
+        model.eval()
+        val_loss = 0
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            for batch in val_loader:
+                inputs, targets = batch
+                outputs = model(inputs)
+                loss = criterion(outputs, targets)
+                val_loss += loss.item()
+                _, predicted = torch.max(outputs, 1)
+                total += targets.size(0)
+                correct += (predicted == targets).sum().item()
+        val_accuracy = 100 * correct / total
+        print(f"Validation Loss: {val_loss/len(val_loader):.4f}, Accuracy: {val_accuracy:.2f}%")
+
+train_ffnn(model, train_loader, val_loader, optimizer, criterion, epochs)
+
+
+# RNN Implementation for CS4375 Homework 2
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
+from data_loader import load_data  # Assuming a load_data function is provided for loading datasets
+
+class RecurrentNN(nn.Module):
+    def __init__(self, input_dim, embedding_dim, hidden_dim, output_dim):
+        super(RecurrentNN, self).__init__()
+        self.embedding = nn.Embedding(input_dim, embedding_dim)
+        self.rnn = nn.RNN(embedding_dim, hidden_dim, batch_first=True)
+        self.fc = nn.Linear(hidden_dim, output_dim)
+
+    def forward(self, x):
+        x = self.embedding(x)
+        h, _ = self.rnn(x)
+        h = h[:, -1, :]  # Take the last hidden state
+        z = self.fc(h)
+        return z
+
+# Hyperparameters and Model Training for RNN
+input_dim = 5000  # Example vocabulary size
+embedding_dim = 100
+hidden_dim = 128
+output_dim = 5  # Output classes (ratings from 1 to 5)
+learning_rate = 0.001
+epochs = 10
+batch_size = 64
+
+train_data, val_data, _ = load_data("path/to/train_data", "path/to/val_data")
+train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
+
+model = RecurrentNN(input_dim, embedding_dim, hidden_dim, output_dim)
+optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+criterion = nn.CrossEntropyLoss()
+
+def train_rnn(model, train_loader, val_loader, optimizer, criterion, epochs):
+    for epoch in range(epochs):
+        model.train()
+        total_loss = 0
+        for batch in train_loader:
+            optimizer.zero_grad()
+            inputs, targets = batch
+            outputs = model(inputs)
+            loss = criterion(outputs, targets)
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+        print(f"Epoch [{epoch+1}/{epochs}], Training Loss: {total_loss/len(train_loader):.4f}")
+
+        # Validation phase
+        model.eval()
+        val_loss = 0
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            for batch in val_loader:
+                inputs, targets = batch
+                outputs = model(inputs)
+                loss = criterion(outputs, targets)
+                val_loss += loss.item()
+                _, predicted = torch.max(outputs, 1)
+                total += targets.size(0)
+                correct += (predicted == targets).sum().item()
+        val_accuracy = 100 * correct / total
+        print(f"Validation Loss: {val_loss/len(val_loader):.4f}, Accuracy: {val_accuracy:.2f}%")
+
+train_rnn(model, train_loader, val_loader, optimizer, criterion, epochs)
